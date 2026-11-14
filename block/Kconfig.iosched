@@ -39,6 +39,11 @@ config CFQ_GROUP_IOSCHED
 	---help---
 	  Enable group IO scheduling in CFQ.
 
+config IOSCHED_MAPLE
+	tristate "Maple I/O scheduler"
+	help
+	  Deadline-based scheduler with separate read and write queues.
+
 choice
 	prompt "Default I/O scheduler"
 	default DEFAULT_CFQ

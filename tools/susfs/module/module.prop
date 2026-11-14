@@ -1,0 +1,6 @@
+id=herograce_susfs155
+name=HeroGrace S7 SUSFS 1.5.5 tools
+version=v1.5.5-cronos1
+versionCode=10500501
+author=simonpunk, Cronos integration
+description=Matching arm64 userspace controls for HeroGrace G930X with the Cronos SUSFS v1.5.5 backport.

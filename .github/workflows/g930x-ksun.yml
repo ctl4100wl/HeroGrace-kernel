@@ -1,0 +1,53 @@
+name: HeroGrace G930X EylemROM KernelSU Next
+
+on:
+  push:
+    branches: [codex/g930x-ksun]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: herograce-g930x-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential bc bison flex libssl-dev libelf-dev python3
+      - name: Check out Linaro 4.9.4
+        uses: actions/checkout@v4
+        with:
+          repository: ryan-andri/aarch64-linaro-linux-gnu-4.9
+          ref: 0d26f997569c21965380406733378e3546279f18
+          path: .toolchains/linaro
+          persist-credentials: false
+      - name: Check out AnyKernel3
+        uses: actions/checkout@v4
+        with:
+          repository: osm0sis/AnyKernel3
+          ref: 41f04bdb4ee30a44e429c2c1131d5e8bb32b15f1
+          path: .toolchains/anykernel3
+          persist-credentials: false
+      - name: Build and package herolte
+        env:
+          CROSS_COMPILE: ${{ github.workspace }}/.toolchains/linaro/bin/aarch64-linux-gnu-
+          ANYKERNEL3_DIR: ${{ github.workspace }}/.toolchains/anykernel3
+        run: bash scripts/ci/build-g930x.sh
+      - name: Upload kernel ZIP, SUSFS tools and build metadata
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HeroGrace-G930X-Eylem-KSUN33355-${{ github.sha }}
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 14

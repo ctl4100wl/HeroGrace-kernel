@@ -9,6 +9,9 @@
 #include <linux/file.h>
 #include <linux/seq_file.h>
 #include <linux/fs.h>
+#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
+#include <linux/susfs_def.h>
+#endif
 
 #include <linux/proc_fs.h>
 
@@ -22,6 +25,7 @@ static int seq_show(struct seq_file *m, void *v)
 	int f_flags = 0, ret = -ENOENT;
 	struct file *file = NULL;
 	struct task_struct *task;
+	struct mount *mnt;
 
 	task = get_proc_task(m->private);
 	if (!task)
@@ -52,9 +56,16 @@ static int seq_show(struct seq_file *m, void *v)
 	if (ret)
 		return ret;
 
+	mnt = real_mount(file->f_path.mnt);
+#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
+	if (current->susfs_task_state & TASK_STRUCT_NON_ROOT_USER_APP_PROC)
+		while (mnt->mnt_id >= DEFAULT_SUS_MNT_ID && mnt != mnt->mnt_parent)
+			mnt = mnt->mnt_parent;
+#endif
+
 	seq_printf(m, "pos:\t%lli\nflags:\t0%o\nmnt_id:\t%i\n",
 		   (long long)file->f_pos, f_flags,
-		   real_mount(file->f_path.mnt)->mnt_id);
+		   mnt->mnt_id);
 
 	show_fd_locks(m, file, files);
 	if (seq_has_overflowed(m))
