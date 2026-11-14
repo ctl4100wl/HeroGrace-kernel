@@ -35,6 +35,7 @@
 
 #include <linux/sec_sysfs.h>
 #ifdef CONFIG_SEC_DEBUG
+#include <linux/sec_debug_hard_reset_hook.h>
 #include <linux/sec_debug.h>
 #endif
 
@@ -498,6 +499,11 @@ static void gpio_keys_gpio_report_event(struct gpio_button_data *bdata)
 	int state = (gpio_get_value_cansleep(button->gpio) ? 1 : 0) ^ button->active_low;
 
 	exynos_ss_check_crash_key(button->code, state);
+#ifdef CONFIG_SEC_DEBUG
+	if (type == EV_KEY)
+		hard_reset_hook(button->code, button->gpio, button->active_low,
+				state);
+#endif
 
 	if (type == EV_ABS) {
 		if (state)

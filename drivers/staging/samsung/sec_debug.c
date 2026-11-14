@@ -541,8 +541,6 @@ void sec_debug_check_crash_key(unsigned int code, int value)
 	static const unsigned int VOLUME_UP = KEY_VOLUMEUP;
 	static const unsigned int VOLUME_DOWN = KEY_VOLUMEDOWN;
 
-	hard_reset_hook(code, value);
-	
 	if (!sec_debug_level.en.kernel_fault) {
 #ifdef CONFIG_SEC_UPLOAD
 		check_crash_keys_in_user(code, value);

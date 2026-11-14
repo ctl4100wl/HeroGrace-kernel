@@ -14,105 +14,86 @@
 #include <linux/delay.h>
 #include <linux/sec_debug_hard_reset_hook.h>
 #include <linux/gpio.h>
+#include <linux/spinlock.h>
 
-#ifndef ARRAY_SIZE
-#define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
-#endif
+enum hard_reset_key {
+	RESET_POWER,
+	RESET_VOLUME_DOWN,
+	RESET_KEY_COUNT,
+};
 
-static unsigned int hard_reset_keys[] = { KEY_POWER, KEY_VOLUMEDOWN };
-
-static unsigned int hold_keys;
-static ktime_t hold_time;
+static struct {
+	int gpio;
+	bool active_low;
+	bool pressed;
+} reset_keys[RESET_KEY_COUNT];
+static DEFINE_SPINLOCK(reset_keys_lock);
 static struct hrtimer hard_reset_hook_timer;
 static bool hard_reset_occurred;
 
-static bool is_hard_reset_key(unsigned int code)
-{
-	int i;
-
-	for (i = 0; i < ARRAY_SIZE(hard_reset_keys); i++)
-		if (code == hard_reset_keys[i])
-			return true;
-	return false;
-}
-
-static int hard_reset_key_set(unsigned int code)
-{
-	int i;
-
-	for (i = 0; i < ARRAY_SIZE(hard_reset_keys); i++)
-		if (code == hard_reset_keys[i])
-			hold_keys |= 0x1 << i;
-	return hold_keys;
-}
-
-static int hard_reset_key_unset(unsigned int code)
-{
-	int i;
-
-	for (i = 0; i < ARRAY_SIZE(hard_reset_keys); i++)
-		if (code == hard_reset_keys[i])
-			hold_keys &= ~(0x1 << i);
-
-	return hold_keys;
-}
-
-static int hard_reset_key_all_pressed(void)
-{
-	int i;
-	unsigned int all_pressed = 0x0;
-
-	for (i = 0; i < ARRAY_SIZE(hard_reset_keys); i++)
-		all_pressed |= 0x1 << i;
-
-	return (hold_keys == all_pressed);
-}
-
-#define GPIO_nPOWER 26
-#define GPIO_VOLUP 10
-static int check_hard_reset_key_pressed(void)
-{
-	if (!gpio_get_value(GPIO_nPOWER))
-		pr_err("%s:%d pressed\n", __func__, KEY_POWER);
-	else
-		pr_err("%s:%d not pressed\n", __func__, KEY_POWER);
-
-	if (!gpio_get_value(GPIO_VOLUP))
-		pr_err("%s:%d pressed\n", __func__, KEY_VOLUMEDOWN);
-	else
-		pr_err("%s:%d not pressed\n", __func__, KEY_VOLUMEDOWN);
-
-	return 0;
-}
-
 static enum hrtimer_restart hard_reset_hook_callback(struct hrtimer *hrtimer)
 {
-	check_hard_reset_key_pressed();
+	unsigned long flags;
+	bool confirmed = true;
+	int i;
+
+	spin_lock_irqsave(&reset_keys_lock, flags);
+	for (i = 0; i < RESET_KEY_COUNT; i++) {
+		int level;
+
+		if (!reset_keys[i].pressed) {
+			confirmed = false;
+			break;
+		}
+		level = gpio_get_value(reset_keys[i].gpio);
+		if (level < 0 || !!level == reset_keys[i].active_low) {
+			confirmed = false;
+			break;
+		}
+	}
+	spin_unlock_irqrestore(&reset_keys_lock, flags);
+
+	if (!confirmed) {
+		pr_warn("Hard Reset cancelled: key GPIOs no longer asserted\n");
+		return HRTIMER_NORESTART;
+	}
+
 	pr_err("Hard Reset\n");
 	hard_reset_occurred = true;
 	BUG();
-	return HRTIMER_RESTART;
+	return HRTIMER_NORESTART;
 }
 
-void hard_reset_hook(unsigned int code, int pressed)
+void hard_reset_hook(unsigned int code, int gpio, bool active_low, bool pressed)
 {
-	if (!is_hard_reset_key(code))
+	unsigned long flags;
+	int key;
+
+	switch (code) {
+	case KEY_POWER:
+		key = RESET_POWER;
+		break;
+	case KEY_VOLUMEDOWN:
+		key = RESET_VOLUME_DOWN;
+		break;
+	default:
+		return;
+	}
+	if (!gpio_is_valid(gpio) || gpio_cansleep(gpio))
 		return;
 
-	if (pressed)
-		hard_reset_key_set(code);
-	else
-		hard_reset_key_unset(code);
-
-	if (hard_reset_key_all_pressed()) {
-		hrtimer_start(&hard_reset_hook_timer,
-			      hold_time, HRTIMER_MODE_REL);		
-		pr_info("%s : hrtimer_start\n", __func__);
-	}
-	else {
+	spin_lock_irqsave(&reset_keys_lock, flags);
+	reset_keys[key].gpio = gpio;
+	reset_keys[key].active_low = active_low;
+	reset_keys[key].pressed = pressed;
+	if (reset_keys[RESET_POWER].pressed && reset_keys[RESET_VOLUME_DOWN].pressed) {
+		if (!hrtimer_active(&hard_reset_hook_timer))
+			hrtimer_start(&hard_reset_hook_timer, ktime_set(6, 0),
+				      HRTIMER_MODE_REL);
+	} else {
 		hrtimer_try_to_cancel(&hard_reset_hook_timer);
 	}
-
+	spin_unlock_irqrestore(&reset_keys_lock, flags);
 }
 
 bool is_hard_reset_occurred(void)
@@ -135,9 +116,8 @@ void hard_reset_delay(void)
 
 int __init hard_reset_hook_init(void)
 {
-	hrtimer_init(&hard_reset_hook_timer, CLOCK_MONOTONIC, HRTIMER_MODE_ABS);
+	hrtimer_init(&hard_reset_hook_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
 	hard_reset_hook_timer.function = hard_reset_hook_callback;
-	hold_time = ktime_set(6, 0); /* 6 seconds */
 
 	return 0;
 }
