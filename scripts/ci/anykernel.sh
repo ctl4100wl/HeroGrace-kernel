@@ -1,5 +1,5 @@
 properties() { '
-kernel.string=HeroGrace BPF G930X for EylemROM 1.0 (KernelSU Next 33355, UAPI 5)
+kernel.string=HeroGrace BPF G930X for EylemROM G930X (SELinux Enforcing, KSUN 33355)
 do.devicecheck=1
 do.modules=0
 do.systemless=0
@@ -31,5 +31,9 @@ strings "$SPLITIMG/kernel" | grep -Eq 'Linux version 3\.18\.140-HeroGrace(Kernel
     abort 'Install the G930X EylemROM 1.0 boot image first.'
 magiskboot cpio "$SPLITIMG/ramdisk.cpio" test
 [ "$?" -eq 0 ] || abort 'Install the original EylemROM boot image before flashing.'
+[ -f "$SPLITIMG/header" ] || abort 'Missing boot image header.'
+patch_cmdline 'androidboot.selinux=' 'androidboot.selinux=enforcing'
+grep -Eq '^cmdline=(.* )?androidboot\.selinux=enforcing( |$)' "$SPLITIMG/header" ||
+    abort 'Could not set SELinux enforcing in the boot command line.'
 ui_print 'Keeping the installed EylemROM ramdisk and replacing the kernel and Samsung DT table.'
 flash_boot

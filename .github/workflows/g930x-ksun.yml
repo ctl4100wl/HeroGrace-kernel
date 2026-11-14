@@ -1,8 +1,8 @@
-name: HeroGrace BPF G930X EylemROM KernelSU Next
+name: HeroGrace BPF G930X EylemROM Enforcing KernelSU Next
 
 on:
   push:
-    branches: [codex/g930x-ksun-bpf]
+    branches: [codex/g930x-ksun-bpf-enforcing]
   workflow_dispatch:
 
 permissions:
@@ -47,7 +47,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: HeroGrace-BPF-G930X-Eylem-KSUN33355-${{ github.sha }}
+          name: HeroGrace-BPF-G930X-Eylem-Enforcing-KSUN33355-${{ github.sha }}
           path: artifacts/
           if-no-files-found: error
           retention-days: 14

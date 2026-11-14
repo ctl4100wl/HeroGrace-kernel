@@ -7,7 +7,7 @@ cd "$(dirname "$0")/../.."
 export ARCH=arm64
 # Retain the upstream HeroGrace compiler-side platform settings.
 export PLATFORM_VERSION=10 ANDROID_MAJOR_VERSION=q
-export LOCALVERSION=-HeroGrace-G930X-Eylem
+export LOCALVERSION=-HeroGrace-G930X-Eylem-Enforcing
 export KBUILD_BUILD_USER=herograce KBUILD_BUILD_HOST=github-actions
 
 mkdir -p artifacts
@@ -26,8 +26,14 @@ cp arch/arm64/boot/exynos8890_Oneui.dtsi "$dts"
 
 make_args=('HOSTCFLAGS=-O2 -fcommon')
 make "${make_args[@]}" herograce_g930x_defconfig
-for option in CONFIG_MODEL_HEROLTE CONFIG_KSU CONFIG_KSU_MANUAL_HOOK CONFIG_IOSCHED_MAPLE CONFIG_KSU_SUSFS CONFIG_CGROUP_BPF CONFIG_NET_ACT_BPF CONFIG_HAVE_EBPF_JIT; do
+for option in CONFIG_MODEL_HEROLTE CONFIG_KSU CONFIG_KSU_MANUAL_HOOK CONFIG_IOSCHED_MAPLE CONFIG_KSU_SUSFS CONFIG_CGROUP_BPF CONFIG_NET_ACT_BPF CONFIG_HAVE_EBPF_JIT CONFIG_SECURITY_SELINUX; do
     grep -qx "$option=y" .config || { echo "Missing $option" >&2; exit 1; }
+done
+for option in CONFIG_ALWAYS_PERMISSIVE CONFIG_SECURITY_SELINUX_DEVELOP CONFIG_SECURITY_SELINUX_BOOTPARAM CONFIG_SECURITY_SELINUX_DISABLE; do
+    if grep -q "^$option=" .config; then
+        echo "Enforcing build requires $option to be disabled" >&2
+        exit 1
+    fi
 done
 cp .config artifacts/kernel.config
 make "${make_args[@]}" -j"${JOBS:-$(nproc)}" Image dtb.img 2>&1 | tee artifacts/build.log

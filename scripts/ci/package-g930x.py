@@ -30,7 +30,7 @@ if dtb.read_bytes()[:4] != b'DTBH':
     raise SystemExit('Build output is missing the Samsung DT table')
 
 revision = subprocess.check_output(['git', '-C', root, 'rev-parse', 'HEAD'], text=True).strip()
-archive = out / f'HeroGrace-BPF-G930X-Eylem-KSUN33355-{revision[:12]}.zip'
+archive = out / f'HeroGrace-BPF-G930X-Eylem-Enforcing-KSUN33355-{revision[:12]}.zip'
 with ZipFile(archive, 'w', compression=ZIP_DEFLATED) as zip_file:
     for folder in ('META-INF', 'tools'):
         for path in sorted((ak3 / folder).rglob('*')):
@@ -64,7 +64,7 @@ manifest = {
     'arm64_image_load_offset': offset,
     'arm64_image_memory_size': image_size,
     'device': 'Exynos Galaxy S7 flat (herolte, G930F/S/L/K)',
-    'rom': 'EylemROM V1.0, One UI 5.1, Android 13',
+    'rom': 'EylemROM V1.0 One UI 7.0 (Android 15), G930X shared boot image',
     'kernelsu_legacy_source': 'e3292239f3b8384cc52bdc6f23995d643271a7ce',
     'manager_release': 'https://github.com/KernelSU-Next/KernelSU-Next/releases/tag/v3.4.2',
     'manager_version_code': 33355,
@@ -72,7 +72,7 @@ manifest = {
     'susfs_version': 'v1.5.5',
     'susfs_backport': 'https://github.com/ctl4100wl/Cronos_8890/commit/04fff235b743c2e00d89ed08d82a76f84a496dde',
     'anykernel3_commit': ak3_commit,
-    'selinux_configuration': 'permissive, matching the reference EylemROM boot image',
+    'selinux_configuration': 'enforcing, global mode cannot be switched to permissive',
     'hardware_tested': False,
 }
 (out / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
