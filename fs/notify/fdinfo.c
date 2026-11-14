@@ -1,3 +1,6 @@
+#ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
+#include <linux/susfs.h>
+#endif
 #include <linux/file.h>
 #include <linux/fs.h>
 #include <linux/fsnotify_backend.h>
@@ -82,6 +85,19 @@ static void inotify_fdinfo(struct seq_file *m, struct fsnotify_mark *mark)
 	inode_mark = container_of(mark, struct inotify_inode_mark, fsn_mark);
 	inode = igrab(mark->i.inode);
 	if (inode) {
+#ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
+		if ((current->susfs_task_state & TASK_STRUCT_NON_ROOT_USER_APP_PROC) &&
+		    (inode->i_state & INODE_STATE_SUS_KSTAT)) {
+			dev_t dev = inode->i_sb->s_dev;
+			unsigned long ino = inode->i_ino;
+
+			susfs_sus_ino_for_show_map_vma(inode->i_ino, &dev, &ino);
+			seq_printf(m, "inotify wd:%x ino:%lx sdev:%x mask:%x ignored_mask:%x\n",
+				   inode_mark->wd, ino, dev, mark->mask, mark->ignored_mask);
+			iput(inode);
+			return;
+		}
+#endif
 		seq_printf(m, "inotify wd:%x ino:%lx sdev:%x mask:%x ignored_mask:%x ",
 			   inode_mark->wd, inode->i_ino, inode->i_sb->s_dev,
 			   mark->mask, mark->ignored_mask);

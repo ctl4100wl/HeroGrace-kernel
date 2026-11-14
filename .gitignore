@@ -10,6 +10,9 @@
 # Normal rules
 #
 .*
+!/.github/
+!/.github/workflows/
+/artifacts/
 *.o
 *.o.*
 *.a
@@ -122,3 +125,6 @@ arch/arm64/kernel/vdso/vdso.so
 Cronos/Out/kernelzip/*
 arch/arm64/boot/dtb.img
 
+
+# Generated WireGuard assembly
+/drivers/net/wireguard/crypto/zinc/*/*-arm64.S

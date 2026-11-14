@@ -54,9 +54,19 @@
  * regardless of the endianness of the kernel. While constant values could be
  * endian swapped in head.S, all are done here for consistency.
  */
-#define HEAD_SYMBOLS						\
-	_kernel_size_le		= DATA_LE64(_end - _text);	\
-	_kernel_offset_le	= DATA_LE64(TEXT_OFFSET);	\
-	_kernel_flags_le	= DATA_LE64(__HEAD_FLAGS);
+#ifdef CONFIG_CPU_BIG_ENDIAN
+#define DEFINE_IMAGE_LE64(sym, data) \
+	sym##_lo32 = (DATA_LE64(data) >> 32) & 0xffffffff; \
+	sym##_hi32 = DATA_LE64(data) & 0xffffffff;
+#else
+#define DEFINE_IMAGE_LE64(sym, data) \
+	sym##_lo32 = DATA_LE64(data) & 0xffffffff; \
+	sym##_hi32 = (DATA_LE64(data) >> 32) & 0xffffffff;
+#endif
+
+#define HEAD_SYMBOLS \
+	DEFINE_IMAGE_LE64(_kernel_size_le, _end - _text) \
+	DEFINE_IMAGE_LE64(_kernel_offset_le, TEXT_OFFSET) \
+	DEFINE_IMAGE_LE64(_kernel_flags_le, __HEAD_FLAGS)
 
 #endif /* __ASM_IMAGE_H */

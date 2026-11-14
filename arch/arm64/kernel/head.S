@@ -65,6 +65,15 @@
  * that are useful before the MMU is enabled. The allocations are described
  * in the entry routines.
  */
+	/*
+	 * A full-width symbol in a PIE link can produce a dynamic relocation.
+	 * Split the boot header fields so the linker resolves them in the file.
+	 */
+	.macro le64sym sym
+	.long \sym\()_lo32
+	.long \sym\()_hi32
+	.endm
+
 	__HEAD
 
 	/*
@@ -82,9 +91,9 @@ efi_head:
 	b	stext				// branch to kernel start, magic
 	.long	0				// reserved
 #endif
-	.quad	_kernel_offset_le		// Image load offset from start of RAM, little-endian
-	.quad	_kernel_size_le			// Effective size of kernel image, little-endian
-	.quad	_kernel_flags_le		// Informative flags, little-endian
+	le64sym _kernel_offset_le		// Image load offset from start of RAM, little-endian
+	le64sym _kernel_size_le			// Effective size of kernel image, little-endian
+	le64sym _kernel_flags_le		// Informative flags, little-endian
 	.quad	0				// reserved
 	.quad	0				// reserved
 	.quad	0				// reserved
