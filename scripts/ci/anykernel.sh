@@ -35,5 +35,5 @@ magiskboot cpio "$SPLITIMG/ramdisk.cpio" test
 patch_cmdline 'androidboot.selinux=' 'androidboot.selinux=enforcing'
 grep -Eq '^cmdline=(.* )?androidboot\.selinux=enforcing( |$)' "$SPLITIMG/header" ||
     abort 'Could not set SELinux enforcing in the boot command line.'
-ui_print 'Keeping the installed EylemROM ramdisk and replacing the kernel and Samsung DT table.'
+ui_print 'Keeping the installed EylemROM ramdisk and Samsung DT table. Replacing the raw kernel only.'
 flash_boot

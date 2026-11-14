@@ -16,14 +16,6 @@ python3 scripts/ci/check-susfs-control.py | tee artifacts/susfs-control.log
 grep -qx 'KSU_VERSION := 33355' drivers/kernelsu/Kbuild
 grep -qx '#define KERNEL_SU_UAPI_VERSION 5' drivers/kernelsu/include/uapi/supercall.h
 
-dts=arch/arm64/boot/dts/exynos8890.dtsi
-if [[ -e "$dts" ]]; then
-    echo "Remove or rename the existing $dts before building." >&2
-    exit 1
-fi
-trap 'rm -f "$dts"' EXIT
-cp arch/arm64/boot/exynos8890_Oneui.dtsi "$dts"
-
 make_args=('HOSTCFLAGS=-O2 -fcommon')
 make "${make_args[@]}" herograce_g930x_defconfig
 for option in CONFIG_MODEL_HEROLTE CONFIG_KSU CONFIG_KSU_MANUAL_HOOK CONFIG_IOSCHED_MAPLE CONFIG_KSU_SUSFS CONFIG_CGROUP_BPF CONFIG_NET_ACT_BPF CONFIG_HAVE_EBPF_JIT CONFIG_SECURITY_SELINUX; do
@@ -36,7 +28,7 @@ for option in CONFIG_ALWAYS_PERMISSIVE CONFIG_SECURITY_SELINUX_DEVELOP CONFIG_SE
     fi
 done
 cp .config artifacts/kernel.config
-make "${make_args[@]}" -j"${JOBS:-$(nproc)}" Image dtb.img 2>&1 | tee artifacts/build.log
+make "${make_args[@]}" -j"${JOBS:-$(nproc)}" Image 2>&1 | tee artifacts/build.log
 "${CROSS_COMPILE}nm" vmlinux | awk '{print $3}' > artifacts/kernel-symbols.txt
 for symbol in kernelsu_init ksu_handle_sys_reboot maple_init_queue susfs_init ksu_susfs_prctl; do
     grep -qx "$symbol" artifacts/kernel-symbols.txt || { echo "Missing linked symbol $symbol" >&2; exit 1; }

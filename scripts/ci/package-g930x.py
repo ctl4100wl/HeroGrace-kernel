@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Package the kernel and Samsung DT table for the G930X EylemROM ramdisk."""
+"""Package a raw kernel for the existing G930X EylemROM boot image."""
 import hashlib
 import json
 import os
@@ -16,7 +16,6 @@ if subprocess.check_output(['git', '-C', ak3, 'rev-parse', 'HEAD'], text=True).s
     raise SystemExit('Wrong AnyKernel3 revision')
 
 image = root / 'arch/arm64/boot/Image'
-dtb = image.with_name('dtb.img')
 with image.open('rb') as stream:
     header = stream.read(64)
 if len(header) != 64 or header[56:60] != b'ARM\x64':
@@ -26,8 +25,6 @@ if offset != 0x80000 or image_size < image.stat().st_size:
     raise SystemExit(
         f'Invalid G930X Image header: offset={offset:#x}, size={image_size:#x}'
     )
-if dtb.read_bytes()[:4] != b'DTBH':
-    raise SystemExit('Build output is missing the Samsung DT table')
 
 revision = subprocess.check_output(['git', '-C', root, 'rev-parse', 'HEAD'], text=True).strip()
 archive = out / f'HeroGrace-BPF-G930X-Eylem-Enforcing-KSUN33355-{revision[:12]}.zip'
@@ -40,7 +37,6 @@ with ZipFile(archive, 'w', compression=ZIP_DEFLATED) as zip_file:
         zip_file.write(path, path.name)
     zip_file.write(root / 'scripts/ci/anykernel.sh', 'anykernel.sh')
     zip_file.write(image, 'Image')
-    zip_file.write(dtb, 'dt')
 with ZipFile(archive) as zip_file:
     if zip_file.testzip() is not None:
         raise SystemExit('Kernel ZIP CRC check failed')
@@ -73,6 +69,7 @@ manifest = {
     'susfs_backport': 'https://github.com/ctl4100wl/Cronos_8890/commit/04fff235b743c2e00d89ed08d82a76f84a496dde',
     'anykernel3_commit': ak3_commit,
     'selinux_configuration': 'enforcing, global mode cannot be switched to permissive',
+    'boot_device_tree': 'preserved from the installed EylemROM boot image',
     'hardware_tested': False,
 }
 (out / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
