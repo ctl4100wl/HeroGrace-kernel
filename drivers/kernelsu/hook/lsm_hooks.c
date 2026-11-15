@@ -1,15 +1,10 @@
 #include <linux/lsm_hooks.h>
 #include <linux/uidgid.h>
 #include <linux/version.h>
-#include <linux/binfmts.h>
-#include <linux/err.h>
-#include <linux/atomic.h>
 
 #include "klog.h" // IWYU pragma: keep
-#include "runtime/ksud_boot.h"
 #include "compat/kernel_compat.h"
 #include "setuid_hook.h"
-#include "manager/throne_tracker.h"
 
 #ifndef KSU_KPROBES_HOOK
 
@@ -32,72 +27,6 @@ static int ksu_key_permission(key_ref_t key_ref, const struct cred *cred,
 	return 0;
 }
 #endif
-
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 3, 0)
-static int ksu_inode_rename(struct mnt_idmap *idmap, struct inode *old_dir, struct dentry *old_dentry,
-			    struct inode *new_dir, struct dentry *new_dentry)
-#elif LINUX_VERSION_CODE >= KERNEL_VERSION(5, 12, 0)
-static int ksu_inode_rename(struct user_namespace *mnt_userns, struct inode *old_dir, struct dentry *old_dentry,
-			    struct inode *new_dir, struct dentry *new_dentry)
-#else
-static int ksu_inode_rename(struct inode *old_dir, struct dentry *old_dentry,
-			    struct inode *new_dir, struct dentry *new_dentry)
-#endif
-{
-	// skip kernel threads
-	if (!current->mm) {
-		return 0;
-	}
-
-	// skip non system uid
-	if (current_uid().val != 1000) {
-		return 0;
-	}
-
-	if (!old_dentry || !new_dentry) {
-		return 0;
-	}
-
-	// Use d_name.name instead of the dangerous d_iname
-	// which can cause OOPS when the dentry is in an inconsistent state during rename
-	if (strcmp(new_dentry->d_name.name, "packages.list")) {
-		return 0;
-	}
-
-	char path[128];
-	char *buf = dentry_path_raw(new_dentry, path, sizeof(path));
-	if (IS_ERR(buf)) {
-		pr_err("dentry_path_raw failed.\n");
-		return 0;
-	}
-
-	if (!strstr(buf, "/system/packages.list")) {
-		return 0;
-	}
-
-	// Do not track anything until the system has fully booted.
-	// Parsing files during early boot from an LSM hook can causes VFS deadlocks
-	if (!ksu_boot_completed) {
-		return 0;
-	}
-
-	pr_debug("renameat: %s -> %s, new path: %s\n", old_dentry->d_name.name,
-		new_dentry->d_name.name, buf);
-
-	// Thread-safe execution using atomic operations to prevent race conditions
-	// if system_server threads execute this hook concurrently.
-	static atomic_t first_time = ATOMIC_INIT(1);
-
-	// atomic_xchg swaps the value to 0 and returns the old value.
-	// If the old value was 1, we are the first thread to reach here.
-	if (atomic_xchg(&first_time, 0) == 1) {
-		track_throne(true);
-	} else {
-		track_throne(false);
-	}
-
-	return 0;
-}
 
 static int ksu_task_fix_setuid(struct cred *new, const struct cred *old,
 			       int flags)
@@ -131,7 +60,6 @@ static struct security_hook_list ksu_hooks[] = {
 	LSM_HOOK_INIT(key_permission, ksu_key_permission),
 #endif
 	LSM_HOOK_INIT(inode_permission, ksu_inode_permission),
-	LSM_HOOK_INIT(inode_rename, ksu_inode_rename),
 	LSM_HOOK_INIT(task_fix_setuid, ksu_task_fix_setuid)
 };
 
