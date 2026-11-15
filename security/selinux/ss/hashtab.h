@@ -52,6 +52,7 @@ struct hashtab *hashtab_create(u32 (*hash_value)(struct hashtab *h, const void *
   0 otherwise.
  */
 int hashtab_insert(struct hashtab *h, void *k, void *d);
+int hashtab_insert_gfp(struct hashtab *h, void *k, void *d, gfp_t flags);
 
 /*
  * Searches for the entry with the specified key in the hash table.

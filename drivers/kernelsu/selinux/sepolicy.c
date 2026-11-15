@@ -88,7 +88,7 @@ static bool add_typeattribute(struct policydb *db, const char *type,
 // https://elixir.bootlin.com/linux/v5.9-rc1/source/security/selinux/ss/symtab.h
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5, 9, 0)
 #define symtab_search(s, name) hashtab_search((s)->table, name)
-#define symtab_insert(s, name, datum) hashtab_insert((s)->table, name, datum)
+#define symtab_insert(s, name, datum) hashtab_insert_gfp((s)->table, name, datum, GFP_ATOMIC)
 #endif
 
 #define avtab_for_each(avtab, cur)                                             \
@@ -130,7 +130,7 @@ static struct avtab_node *get_avtab_node(struct policydb *db,
             avdatum.u.data = key->specified == AVTAB_AUDITDENY ? ~0U : 0U;
         }
         /* this is used to get the node - insertion is actually unique */
-        node = avtab_insert_nonunique(&db->te_avtab, key, &avdatum);
+        node = avtab_insert_nonunique_gfp(&db->te_avtab, key, &avdatum, GFP_ATOMIC);
         if (!node)
             return NULL;
 
@@ -172,7 +172,7 @@ static bool remove_avtab_node(struct policydb *db, struct avtab_node *node)
     struct avtab_node *n;
     struct avtab_node *prev;
 
-    ret = avtab_alloc(&removed, 1);
+    ret = avtab_alloc_gfp(&removed, 1, GFP_ATOMIC);
     if (ret < 0)
         return false;
 
@@ -638,18 +638,18 @@ static bool add_filename_trans(struct policydb *db, const char *s,
 
     if (trans == NULL) {
         trans = (struct filename_trans_datum *)kcalloc(1, sizeof(*trans),
-                                                       GFP_KERNEL);
+                                                       GFP_ATOMIC);
         if (!trans) {
             pr_err("add_filename_trans: alloc filename_trans_datum failed\n");
             goto out;
         }
-        new_key = kzalloc(sizeof(*new_key), GFP_KERNEL);
+        new_key = kzalloc(sizeof(*new_key), GFP_ATOMIC);
         if (!new_key) {
             pr_err("add_filename_trans: alloc filename_trans_key failed\n");
             goto free_trans;
         }
         *new_key = key;
-        new_key->name = kstrdup(key.name, GFP_KERNEL);
+        new_key->name = kstrdup(key.name, GFP_ATOMIC);
         if (!new_key->name) {
             pr_err("add_filename_trans: kstrdup name failed\n");
             goto free_key;
@@ -688,24 +688,24 @@ out:
 
     if (trans == NULL) {
         trans = (struct filename_trans_datum *)kcalloc(1, sizeof(*trans),
-                                                       GFP_KERNEL);
+                                                       GFP_ATOMIC);
         if (!trans) {
             pr_err("add_filename_trans: Failed to alloc datum\n");
             return false;
         }
-        new_key = (struct filename_trans *)kzalloc(sizeof(*new_key), GFP_KERNEL);
+        new_key = (struct filename_trans *)kzalloc(sizeof(*new_key), GFP_ATOMIC);
         if (!new_key) {
             pr_err("add_filename_trans: Failed to alloc new_key\n");
             goto free_trans_pre57;
         }
         *new_key = key;
-        new_key->name = kstrdup(key.name, GFP_KERNEL);
+        new_key->name = kstrdup(key.name, GFP_ATOMIC);
         if (!new_key->name) {
             pr_err("add_filename_trans: Failed to alloc name\n");
             goto free_key_pre57;
         }
         trans->otype = def->value;
-        if (hashtab_insert(db->filename_trans, new_key, trans)) {
+        if (hashtab_insert_gfp(db->filename_trans, new_key, trans, GFP_ATOMIC)) {
             pr_err("add_filename_trans: hashtab_insert failed\n");
             goto free_name_pre57;
         }
@@ -731,10 +731,10 @@ static bool add_genfscon(struct policydb *db, const char *fs_name,
 
 // https://github.com/torvalds/linux/commit/590b9d576caec6b4c46bba49ed36223a399c3fc5#diff-cc9aa90e094e6e0f47bd7300db4f33cf4366b98b55d8753744f31eb69c691016R844-R845
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 12, 0)
-#define ksu_kvrealloc(p, new_size, _old_size) kvrealloc(p, new_size, GFP_KERNEL)
+#define ksu_kvrealloc(p, new_size, _old_size) kvrealloc(p, new_size, GFP_ATOMIC)
 #else
 #define ksu_kvrealloc(p, new_size, old_size)                                   \
-	ksu_compat_kvrealloc(p, old_size, new_size, GFP_KERNEL)
+	ksu_compat_kvrealloc(p, old_size, new_size, GFP_ATOMIC)
 #endif
 
 static bool add_type(struct policydb *db, const char *type_name, bool attr)
@@ -747,7 +747,7 @@ static bool add_type(struct policydb *db, const char *type_name, bool attr)
 
     u32 value = db->p_types.nprim + 1;
 
-    type = (struct type_datum *)kzalloc(sizeof(struct type_datum), GFP_KERNEL);
+    type = (struct type_datum *)kzalloc(sizeof(struct type_datum), GFP_ATOMIC);
     if (!type) {
         pr_err("add_type: alloc type_datum failed.\n");
         return false;
@@ -757,13 +757,14 @@ static bool add_type(struct policydb *db, const char *type_name, bool attr)
     type->value = value;
     type->attribute = attr;
 
-    char *key = kstrdup(type_name, GFP_KERNEL);
+    char *key = kstrdup(type_name, GFP_ATOMIC);
     if (!key) {
         pr_err("add_type: alloc key failed.\n");
         kfree(type);
         return false;
     }
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 1, 0)
     if (symtab_insert(&db->p_types, key, type)) {
         pr_err("add_type: insert symtab failed.\n");
         kfree(key);
@@ -773,7 +774,6 @@ static bool add_type(struct policydb *db, const char *type_name, bool attr)
 
     db->p_types.nprim = value;
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 1, 0)
     struct ebitmap *new_type_attr_map_array =
         ksu_kvrealloc(db->type_attr_map_array, value * sizeof(struct ebitmap),
                     (value - 1) * sizeof(struct ebitmap));
@@ -825,12 +825,12 @@ static bool add_type(struct policydb *db, const char *type_name, bool attr)
    */
 	size_t new_size = sizeof(struct ebitmap) * db->p_types.nprim;
 	struct ebitmap *new_type_attr_map =
-		(krealloc(db->type_attr_map, new_size, GFP_KERNEL));
+		(krealloc(db->type_attr_map, new_size, GFP_ATOMIC));
 
 	struct type_datum **new_type_val_to_struct =
 		krealloc(db->type_val_to_struct,
 			 sizeof(*db->type_val_to_struct) * db->p_types.nprim,
-			 GFP_KERNEL);
+			 GFP_ATOMIC);
 
 	if (!new_type_attr_map) {
 		pr_err("add_type: alloc type_attr_map failed\n");
@@ -845,7 +845,7 @@ static bool add_type(struct policydb *db, const char *type_name, bool attr)
 	char **new_val_to_name_types =
 		krealloc(db->sym_val_to_name[SYM_TYPES],
 			 sizeof(char *) * db->symtab[SYM_TYPES].nprim,
-			 GFP_KERNEL);
+			 GFP_ATOMIC);
 	if (!new_val_to_name_types) {
 		pr_err("add_type: alloc val_to_name failed\n");
 		return false;
@@ -869,53 +869,23 @@ static bool add_type(struct policydb *db, const char *type_name, bool attr)
 
 	return true;
 #else
-	// flex_array is not extensible, we need to create a new bigger one instead
+	/* Build replacements before publishing the new type. */
 	struct flex_array *new_type_attr_map_array =
-		flex_array_alloc(sizeof(struct ebitmap), db->p_types.nprim,
-				 GFP_KERNEL | __GFP_ZERO);
-
+		flex_array_alloc(sizeof(struct ebitmap), value, GFP_ATOMIC | __GFP_ZERO);
 	struct flex_array *new_type_val_to_struct =
-		flex_array_alloc(sizeof(struct type_datum *), db->p_types.nprim,
-				 GFP_KERNEL | __GFP_ZERO);
-
+		flex_array_alloc(sizeof(struct type_datum *), value, GFP_ATOMIC | __GFP_ZERO);
 	struct flex_array *new_val_to_name_types =
-		flex_array_alloc(sizeof(char *), db->symtab[SYM_TYPES].nprim,
-				 GFP_KERNEL | __GFP_ZERO);
+		flex_array_alloc(sizeof(char *), value, GFP_ATOMIC | __GFP_ZERO);
+	struct ebitmap *new_type_attrs = NULL;
 
-	if (!new_type_attr_map_array) {
-		pr_err("add_type: alloc type_attr_map_array failed\n");
-		return false;
-	}
+	if (!new_type_attr_map_array || !new_type_val_to_struct ||
+	    !new_val_to_name_types)
+		goto free_arrays;
 
-	if (!new_type_val_to_struct) {
-		pr_err("add_type: alloc type_val_to_struct failed\n");
-		return false;
-	}
-
-	if (!new_val_to_name_types) {
-		pr_err("add_type: alloc val_to_name failed\n");
-		return false;
-	}
-
-	// preallocate so we don't have to worry about the put ever failing
-	if (flex_array_prealloc(new_type_attr_map_array, 0, db->p_types.nprim,
-				GFP_KERNEL | __GFP_ZERO)) {
-		pr_err("add_type: prealloc type_attr_map_array failed\n");
-		return false;
-	}
-
-	if (flex_array_prealloc(new_type_val_to_struct, 0, db->p_types.nprim,
-				GFP_KERNEL | __GFP_ZERO)) {
-		pr_err("add_type: prealloc type_val_to_struct_array failed\n");
-		return false;
-	}
-
-	if (flex_array_prealloc(new_val_to_name_types, 0,
-				db->symtab[SYM_TYPES].nprim,
-				GFP_KERNEL | __GFP_ZERO)) {
-		pr_err("add_type: prealloc val_to_name_types failed\n");
-		return false;
-	}
+	if (flex_array_prealloc(new_type_attr_map_array, 0, value, GFP_ATOMIC | __GFP_ZERO) ||
+	    flex_array_prealloc(new_type_val_to_struct, 0, value, GFP_ATOMIC | __GFP_ZERO) ||
+	    flex_array_prealloc(new_val_to_name_types, 0, value, GFP_ATOMIC | __GFP_ZERO))
+		goto free_arrays;
 
 	int j;
 	void *old_elem;
@@ -924,14 +894,14 @@ static bool add_type(struct policydb *db, const char *type_name, bool attr)
 		old_elem = flex_array_get(db->type_attr_map_array, j);
 		if (old_elem)
 			flex_array_put(new_type_attr_map_array, j, old_elem,
-				       GFP_KERNEL | __GFP_ZERO);
+				       GFP_ATOMIC | __GFP_ZERO);
 	}
 
 	for (j = 0; j < db->type_val_to_struct_array->total_nr_elements; j++) {
 		old_elem = flex_array_get_ptr(db->type_val_to_struct_array, j);
 		if (old_elem)
 			flex_array_put_ptr(new_type_val_to_struct, j, old_elem,
-					   GFP_KERNEL | __GFP_ZERO);
+					   GFP_ATOMIC | __GFP_ZERO);
 	}
 
 	for (j = 0; j < db->symtab[SYM_TYPES].nprim; j++) {
@@ -939,44 +909,43 @@ static bool add_type(struct policydb *db, const char *type_name, bool attr)
 			flex_array_get_ptr(db->sym_val_to_name[SYM_TYPES], j);
 		if (old_elem)
 			flex_array_put_ptr(new_val_to_name_types, j, old_elem,
-					   GFP_KERNEL | __GFP_ZERO);
+					   GFP_ATOMIC | __GFP_ZERO);
 	}
 
-	// store the pointer of old flex arrays first, when assigning new ones we
-	// should free it
-	struct flex_array *old_fa;
+	new_type_attrs = flex_array_get(new_type_attr_map_array, value - 1);
+	ebitmap_init(new_type_attrs);
+	if (ebitmap_set_bit(new_type_attrs, value - 1, 1) ||
+	    flex_array_put_ptr(new_type_val_to_struct, value - 1, type, GFP_ATOMIC) ||
+	    flex_array_put_ptr(new_val_to_name_types, value - 1, key, GFP_ATOMIC) ||
+	    symtab_insert(&db->p_types, key, type))
+		goto free_arrays;
 
-	old_fa = db->type_attr_map_array;
+	flex_array_free(db->type_attr_map_array);
 	db->type_attr_map_array = new_type_attr_map_array;
-	if (old_fa) {
-		flex_array_free(old_fa);
-	}
-
-	ebitmap_init(flex_array_get(db->type_attr_map_array, value - 1));
-	ebitmap_set_bit(flex_array_get(db->type_attr_map_array, value - 1),
-			value - 1, 1);
-
-	old_fa = db->type_val_to_struct_array;
+	flex_array_free(db->type_val_to_struct_array);
 	db->type_val_to_struct_array = new_type_val_to_struct;
-	if (old_fa) {
-		flex_array_free(old_fa);
-	}
-	flex_array_put_ptr(db->type_val_to_struct_array, value - 1, type,
-			   GFP_KERNEL | __GFP_ZERO);
-
-	old_fa = db->sym_val_to_name[SYM_TYPES];
+	flex_array_free(db->sym_val_to_name[SYM_TYPES]);
 	db->sym_val_to_name[SYM_TYPES] = new_val_to_name_types;
-	if (old_fa) {
-		flex_array_free(old_fa);
-	}
-	flex_array_put_ptr(db->sym_val_to_name[SYM_TYPES], value - 1, key,
-			   GFP_KERNEL | __GFP_ZERO);
+	db->p_types.nprim = value;
 
 	int i;
 	for (i = 0; i < db->p_roles.nprim; ++i) {
 		ebitmap_set_bit(&db->role_val_to_struct[i]->types, value - 1, 1);
 	}
 	return true;
+free_arrays:
+	if (new_type_attrs)
+		ebitmap_destroy(new_type_attrs);
+	if (new_type_attr_map_array)
+		flex_array_free(new_type_attr_map_array);
+	if (new_type_val_to_struct)
+		flex_array_free(new_type_val_to_struct);
+	if (new_val_to_name_types)
+		flex_array_free(new_val_to_name_types);
+	kfree(key);
+	kfree(type);
+	pr_err("add_type: could not prepare policy entries for %s\n", type_name);
+	return false;
 #endif
 }
 

@@ -35,17 +35,17 @@ static inline int avtab_hash(struct avtab_key *keyp, u16 mask)
 static struct avtab_node*
 avtab_insert_node(struct avtab *h, int hvalue,
 		  struct avtab_node *prev, struct avtab_node *cur,
-		  struct avtab_key *key, struct avtab_datum *datum)
+		  struct avtab_key *key, struct avtab_datum *datum, gfp_t flags)
 {
 	struct avtab_node *newnode;
 	struct avtab_extended_perms *xperms;
-	newnode = kmem_cache_zalloc(avtab_node_cachep, GFP_KERNEL);
+	newnode = kmem_cache_zalloc(avtab_node_cachep, flags);
 	if (newnode == NULL)
 		return NULL;
 	newnode->key = *key;
 
 	if (key->specified & AVTAB_XPERMS) {
-		xperms = kmem_cache_zalloc(avtab_xperms_cachep, GFP_KERNEL);
+		xperms = kmem_cache_zalloc(avtab_xperms_cachep, flags);
 		if (xperms == NULL) {
 			kmem_cache_free(avtab_node_cachep, newnode);
 			return NULL;
@@ -101,7 +101,7 @@ static int avtab_insert(struct avtab *h, struct avtab_key *key, struct avtab_dat
 			break;
 	}
 
-	newnode = avtab_insert_node(h, hvalue, prev, cur, key, datum);
+	newnode = avtab_insert_node(h, hvalue, prev, cur, key, datum, GFP_KERNEL);
 	if (!newnode)
 		return -ENOMEM;
 
@@ -113,7 +113,8 @@ static int avtab_insert(struct avtab *h, struct avtab_key *key, struct avtab_dat
  * It also returns a pointer to the node inserted.
  */
 struct avtab_node *
-avtab_insert_nonunique(struct avtab *h, struct avtab_key *key, struct avtab_datum *datum)
+avtab_insert_nonunique_gfp(struct avtab *h, struct avtab_key *key,
+			    struct avtab_datum *datum, gfp_t flags)
 {
 	int hvalue;
 	struct avtab_node *prev, *cur;
@@ -140,7 +141,13 @@ avtab_insert_nonunique(struct avtab *h, struct avtab_key *key, struct avtab_datu
 		    key->target_class < cur->key.target_class)
 			break;
 	}
-	return avtab_insert_node(h, hvalue, prev, cur, key, datum);
+	return avtab_insert_node(h, hvalue, prev, cur, key, datum, flags);
+}
+
+struct avtab_node *
+avtab_insert_nonunique(struct avtab *h, struct avtab_key *key, struct avtab_datum *datum)
+{
+	return avtab_insert_nonunique_gfp(h, key, datum, GFP_KERNEL);
 }
 
 struct avtab_datum *avtab_search(struct avtab *h, struct avtab_key *key)
@@ -270,7 +277,7 @@ int avtab_init(struct avtab *h)
 	return 0;
 }
 
-int avtab_alloc(struct avtab *h, u32 nrules)
+int avtab_alloc_gfp(struct avtab *h, u32 nrules, gfp_t flags)
 {
 	u16 mask = 0;
 	u32 shift = 0;
@@ -291,7 +298,7 @@ int avtab_alloc(struct avtab *h, u32 nrules)
 		nslot = MAX_AVTAB_HASH_BUCKETS;
 	mask = nslot - 1;
 
-	h->htable = kcalloc(nslot, sizeof(*(h->htable)), GFP_KERNEL);
+	h->htable = kcalloc(nslot, sizeof(*(h->htable)), flags);
 	if (!h->htable)
 		return -ENOMEM;
 
@@ -302,6 +309,11 @@ int avtab_alloc(struct avtab *h, u32 nrules)
 	printk(KERN_DEBUG "SELinux: %d avtab hash slots, %d rules.\n",
 	       h->nslot, nrules);
 	return 0;
+}
+
+int avtab_alloc(struct avtab *h, u32 nrules)
+{
+	return avtab_alloc_gfp(h, nrules, GFP_KERNEL);
 }
 
 void avtab_hash_eval(struct avtab *h, char *tag)

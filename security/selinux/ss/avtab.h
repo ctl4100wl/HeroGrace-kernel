@@ -92,6 +92,7 @@ struct avtab {
 
 int avtab_init(struct avtab *);
 int avtab_alloc(struct avtab *, u32);
+int avtab_alloc_gfp(struct avtab *, u32, gfp_t);
 struct avtab_datum *avtab_search(struct avtab *h, struct avtab_key *k);
 void avtab_destroy(struct avtab *h);
 void avtab_hash_eval(struct avtab *h, char *tag);
@@ -106,6 +107,8 @@ int avtab_read(struct avtab *a, void *fp, struct policydb *pol);
 int avtab_write_item(struct policydb *p, struct avtab_node *cur, void *fp);
 int avtab_write(struct policydb *p, struct avtab *a, void *fp);
 
+struct avtab_node *avtab_insert_nonunique_gfp(struct avtab *, struct avtab_key *,
+					     struct avtab_datum *, gfp_t);
 struct avtab_node *avtab_insert_nonunique(struct avtab *h, struct avtab_key *key,
 					  struct avtab_datum *datum);
 

@@ -85,12 +85,6 @@ static inline rwlock_t *ksu_get_policy_rwlock(void) { extern rwlock_t policy_rwl
 static inline rwlock_t *ksu_get_policy_rwlock(void) { return NULL; }
 #endif
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 2, 0) || defined(KSU_COMPAT_HAS_BACKPORTED_CPUS_PTR)
-static inline const cpumask_t *ksu_get_current_cpumask_t() { return current->cpus_ptr; }
-#else
-static inline cpumask_t *ksu_get_current_cpumask_t() { return &current->cpus_allowed; }
-#endif
-
 #endif // #ifndef SELINUX_POLICY_INSTEAD_SELINUX_SS
 
 static int apply_kernelsu_rules_fn(void *ptr)
@@ -230,60 +224,21 @@ out_unlock:
 	mutex_unlock(&selinux_state.policy_mutex);
 #else
 
-	cpumask_t old_mask;
-	db = get_policydb();
 	rwlock_t *lock = ksu_get_policy_rwlock();
 
-	if (!lock)
-		goto do_stop_machine;
-
-	/*
-	 * HACK: write_lock() is held with preempt enabled. DO NOT let the
-	 * task be migrated to any other CPU than the current CPU. And since
-	 * set_cpus_allowed_ptr() can sleep, use raw_smp_processor_id() to get
-	 * current CPU and bypass preemption checks.
-	 */
-	cpumask_copy(&old_mask, ksu_get_current_cpumask_t());
-	set_cpus_allowed_ptr(current, cpumask_of(raw_smp_processor_id()));
-
-	write_lock(lock);
-	preempt_enable();
-
-    // we do this dance since both kernel and userspace can trigger this
-	if (likely(current && current->mm))
-		goto has_current_mm;
-
-	apply_kernelsu_rules_fn((void *)db);
+	db = get_policydb();
+	mutex_lock(&ksu_rules);
+	if (lock) {
+		/* Policy readers run with preemption disabled. */
+		write_lock_irq(lock);
+		apply_kernelsu_rules_fn(db);
+		write_unlock_irq(lock);
+	} else {
+		stop_machine(apply_kernelsu_rules_fn, db, NULL);
+	}
 	ksu_policydb_fixup_len(db, "apply_kernelsu_rules");
-	goto out_unlock;
-
-has_current_mm:
-	;
-
-    // HACK: raise priority of this to the heavens
-	int old_policy = current->policy;
-	struct sched_param old_param = { .sched_priority = current->rt_priority };
-	struct sched_param new_param = { .sched_priority = 50 };
-
-	sched_setscheduler_nocheck(current, 1, &new_param); // raise, fifo, 50
-	apply_kernelsu_rules_fn((void *)db);
-	sched_setscheduler_nocheck(current, old_policy, &old_param); // restore
-
-	ksu_policydb_fixup_len(db, "apply_kernelsu_rules");
-
-out_unlock:
-	preempt_disable();
-	write_unlock(lock);
-	set_cpus_allowed_ptr(current, &old_mask);
-	goto out_reset_avc;
-
-do_stop_machine:
-	stop_machine(apply_kernelsu_rules_fn, (void *)db, NULL);
-	ksu_policydb_fixup_len(db, "apply_kernelsu_rules");
-
-out_reset_avc:
-	smp_mb();
 	reset_avc_cache();
+	mutex_unlock(&ksu_rules);
 #endif
 }
 
@@ -734,7 +689,6 @@ int handle_sepolicy(void __user *user_data, u64 data_len)
 	u8 *payload;
 	int ret = 0;
 	int success_cmd_count = 0;
-	cpumask_t old_mask;
 
 	if (!user_data || !data_len)
 		return -EINVAL;
@@ -761,56 +715,23 @@ int handle_sepolicy(void __user *user_data, u64 data_len)
 	ctx.ctx_data_len = (u64)data_len;
 
 	rwlock_t *lock = ksu_get_policy_rwlock();
-	if (!lock)
-		goto do_stop_machine;
 
-	/*
-	 * HACK: write_lock() is held with preempt enabled. DO NOT let the
-	 * task be migrated to any other CPU than the current CPU. And since
-	 * set_cpus_allowed_ptr() can sleep, use raw_smp_processor_id() to get
-	 * current CPU and bypass preemption checks.
-	 */
-	cpumask_copy(&old_mask, ksu_get_current_cpumask_t());
-	set_cpus_allowed_ptr(current, cpumask_of(raw_smp_processor_id()));
-
-	write_lock(lock);
-	preempt_enable();
-
-	if (likely(current && current->mm))
-		goto has_current_mm;
-
-	ret = handle_sepolicy_fn((void *)&ctx);
-	goto out_unlock;
-
-has_current_mm:
-	;
-
-	int old_policy = current->policy;
-	struct sched_param old_param = { .sched_priority = current->rt_priority };
-	struct sched_param new_param = { .sched_priority = 50 };
-
-	sched_setscheduler_nocheck(current, 1, &new_param);
-	ret = handle_sepolicy_fn((void *)&ctx);
-	sched_setscheduler_nocheck(current, old_policy, &old_param);
-
+	mutex_lock(&ksu_rules);
+	if (lock) {
+		write_lock_irq(lock);
+		ret = handle_sepolicy_fn(&ctx);
+		write_unlock_irq(lock);
+	} else {
+		ret = stop_machine(handle_sepolicy_fn, &ctx, NULL);
+	}
 	ksu_policydb_fixup_len(get_policydb(), "handle_sepolicy");
+	/* A failed batch may still have changed policy in place. */
+	reset_avc_cache();
+	mutex_unlock(&ksu_rules);
 
-out_unlock:
-	preempt_disable();
-	write_unlock(lock);
-	set_cpus_allowed_ptr(current, &old_mask);
-	goto out_done;
-
-do_stop_machine:
-	ret = stop_machine(handle_sepolicy_fn, (void *)&ctx, NULL);
-	ksu_policydb_fixup_len(get_policydb(), "handle_sepolicy");
-
-out_done:
 	if (ret)
 		goto out_free;
 
-	smp_mb();
-	reset_avc_cache();
 	ret = success_cmd_count;
 
 out_free:
